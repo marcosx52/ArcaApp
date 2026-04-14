@@ -1,0 +1,5 @@
+DATABASE_URL="postgresql://postgres.rqiankcttxrspxcbugbi:[TU_DATABASE_PASSWORD]@aws-1-sa-east-1.pooler.supabase.com:5432/postgres"
+DIRECT_URL="postgresql://postgres.rqiankcttxrspxcbugbi:[TU_DATABASE_PASSWORD]@aws-1-sa-east-1.pooler.supabase.com:5432/postgres"
+PORT=3001
+JWT_SECRET=dev-secret
+STORAGE_DRIVER=local
