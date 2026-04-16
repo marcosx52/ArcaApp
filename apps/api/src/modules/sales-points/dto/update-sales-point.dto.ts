@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString } from 'class-validator';
 
 export class UpdateSalesPointDto {
   @IsOptional()
@@ -18,6 +18,6 @@ export class UpdateSalesPointDto {
   enabledForProduction?: boolean;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['ACTIVE', 'INACTIVE', 'BLOCKED'])
   status?: 'ACTIVE' | 'INACTIVE' | 'BLOCKED';
 }

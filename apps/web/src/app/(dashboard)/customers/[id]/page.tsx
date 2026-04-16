@@ -1,5 +1,5 @@
-import { CustomersScreen } from '@/features/customers/components/customers-screen';
+import { CustomerDetailScreen } from '@/features/customers/components/customer-detail-screen';
 
-export default function CustomerDetailPage() {
-  return <CustomersScreen />;
+export default function CustomerDetailPage({ params }: { params: { id: string } }) {
+  return <CustomerDetailScreen customerId={params.id} />;
 }

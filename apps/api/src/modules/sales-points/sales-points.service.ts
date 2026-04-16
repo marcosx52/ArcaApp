@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateSalesPointDto } from './dto/create-sales-point.dto';
 import { UpdateSalesPointDto } from './dto/update-sales-point.dto';
@@ -15,11 +15,23 @@ export class SalesPointsService {
     return this.prisma.salesPoint.create({ data: { companyId, ...dto } });
   }
 
-  update(id: string, dto: UpdateSalesPointDto) {
-    return this.prisma.salesPoint.update({ where: { id }, data: dto });
+  async findOne(companyId: string, id: string) {
+    const salesPoint = await this.prisma.salesPoint.findFirst({
+      where: { id, companyId },
+    });
+
+    if (!salesPoint) throw new NotFoundException('Punto de venta no encontrado');
+    return salesPoint;
   }
 
-  findOne(id: string) {
-    return this.prisma.salesPoint.findUnique({ where: { id } });
+  async update(companyId: string, id: string, dto: UpdateSalesPointDto) {
+    const result = await this.prisma.salesPoint.updateMany({
+      where: { id, companyId },
+      data: dto,
+    });
+
+    if (result.count === 0) throw new NotFoundException('Punto de venta no encontrado');
+
+    return this.findOne(companyId, id);
   }
 }
