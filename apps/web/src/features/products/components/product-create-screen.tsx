@@ -5,22 +5,32 @@ import { useRouter } from 'next/navigation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import { EmptyState } from '@/components/feedback/empty-state';
+import { LoadingState } from '@/components/feedback/loading-state';
+import { getActiveCompanyId } from '@/lib/auth';
 import { mapError } from '@/lib/error-mapping';
 import { createProduct } from '../lib/products-api';
-import { ProductForm } from './product-form';
 import { emptyProductFormValues, toProductCreateInput } from '../lib/products';
+import { ProductForm } from './product-form';
 
 export function ProductCreateScreen() {
+  const companyId = getActiveCompanyId();
   const router = useRouter();
   const queryClient = useQueryClient();
 
   const createMutation = useMutation({
     mutationFn: createProduct,
     onSuccess: async (product) => {
-      await queryClient.invalidateQueries({ queryKey: ['products'] });
+      if (companyId) {
+        await queryClient.invalidateQueries({ queryKey: ['products', companyId, 'list'] });
+      }
+
       router.push(`/products/${product.id}`);
     },
   });
+
+  if (!companyId) {
+    return <LoadingState label="Preparando empresa activa..." />;
+  }
 
   return (
     <div className="space-y-4">

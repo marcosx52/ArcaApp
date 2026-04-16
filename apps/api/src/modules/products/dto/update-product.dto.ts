@@ -3,6 +3,10 @@ import { IsBoolean, IsOptional, IsString } from 'class-validator';
 export class UpdateProductDto {
   @IsOptional()
   @IsString()
+  itemType?: 'PRODUCT' | 'SERVICE';
+
+  @IsOptional()
+  @IsString()
   code?: string;
 
   @IsOptional()

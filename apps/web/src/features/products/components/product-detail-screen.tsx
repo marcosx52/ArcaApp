@@ -3,12 +3,14 @@
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, BadgeCheck, CalendarDays, PencilLine } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { LoadingState } from '@/components/feedback/loading-state';
 import { StatusBadge } from '@/components/feedback/status-badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { getActiveCompanyId } from '@/lib/auth';
 import { mapError } from '@/lib/error-mapping';
-import { getProduct, updateProduct } from '../lib/products-api';
+import { archiveProduct, getProduct, updateProduct } from '../lib/products-api';
 import { formatProductPrice, toProductFormValues, toProductUpdateInput } from '../lib/products';
 import { ProductForm } from './product-form';
 
@@ -24,20 +26,36 @@ function formatDate(value: string) {
 }
 
 export function ProductDetailScreen({ productId }: ProductDetailScreenProps) {
+  const companyId = getActiveCompanyId();
   const queryClient = useQueryClient();
+  const productDetailQueryKey = ['products', companyId ?? 'no-company', 'detail', productId] as const;
+  const productListQueryKey = ['products', companyId ?? 'no-company', 'list'] as const;
 
   const productQuery = useQuery({
-    queryKey: ['products', productId],
+    queryKey: productDetailQueryKey,
     queryFn: () => getProduct(productId),
+    enabled: Boolean(companyId),
   });
 
   const updateMutation = useMutation({
     mutationFn: (values: Parameters<typeof updateProduct>[1]) => updateProduct(productId, values),
     onSuccess: async (updatedProduct) => {
-      queryClient.setQueryData(['products', productId], updatedProduct);
-      await queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.setQueryData(productDetailQueryKey, updatedProduct);
+      await queryClient.invalidateQueries({ queryKey: productListQueryKey });
     },
   });
+
+  const archiveMutation = useMutation({
+    mutationFn: () => archiveProduct(productId),
+    onSuccess: async (archivedProduct) => {
+      queryClient.setQueryData(productDetailQueryKey, archivedProduct);
+      await queryClient.invalidateQueries({ queryKey: productListQueryKey });
+    },
+  });
+
+  if (!companyId) {
+    return <LoadingState label="Preparando empresa activa..." />;
+  }
 
   if (productQuery.isLoading) {
     return <LoadingState label="Cargando producto..." />;
@@ -77,34 +95,51 @@ export function ProductDetailScreen({ productId }: ProductDetailScreenProps) {
           <ArrowLeft className="h-4 w-4" />
           Volver
         </Link>
-        <StatusBadge tone={product.isActive ? 'success' : 'danger'}>{product.isActive ? 'Activo' : 'Inactivo'}</StatusBadge>
+        <StatusBadge tone={product.isActive ? 'success' : 'danger'}>
+          {product.isActive ? 'Activo' : 'Archivado'}
+        </StatusBadge>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.5fr_0.85fr]">
         <ProductForm
+          key={`${product.id}:${product.updatedAt}`}
           title={`Editar producto: ${product.name}`}
-          description="Cambios persistidos vía PATCH /products/:id."
+          description="Cambios persistidos via PATCH /products/:id y archivado via DELETE /products/:id."
           submitLabel="Guardar cambios"
           defaultValues={toProductFormValues(product)}
           showActiveField
-          isSubmitting={updateMutation.isPending}
+          isSubmitting={updateMutation.isPending || archiveMutation.isPending}
           onSubmit={async (values) => {
             await updateMutation.mutateAsync(toProductUpdateInput(values));
           }}
+          footer={
+            <Button
+              type="button"
+              variant="outline"
+              className="border-red-200 text-red-700 hover:bg-red-50"
+              disabled={!product.isActive || updateMutation.isPending || archiveMutation.isPending}
+              onClick={() => {
+                if (!window.confirm(`Archivar ${product.name}? El registro quedara inactivo.`)) return;
+                archiveMutation.mutate();
+              }}
+            >
+              {archiveMutation.isPending ? 'Archivando...' : product.isActive ? 'Archivar producto' : 'Producto archivado'}
+            </Button>
+          }
         />
 
         <Card>
           <CardHeader>
-            <CardTitle>Detalle rápido</CardTitle>
-            <CardDescription>Información sincronizada con el backend.</CardDescription>
+            <CardTitle>Detalle rapido</CardTitle>
+            <CardDescription>Informacion sincronizada con el backend.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             <div className="space-y-2 rounded-2xl border border-slate-200 p-4">
               <div className="flex items-center gap-2 text-slate-500">
                 <PencilLine className="h-4 w-4" />
-                Identificación
+                Identificacion
               </div>
-              <div className="font-medium text-slate-900">{product.code || 'Sin código'}</div>
+              <div className="font-medium text-slate-900">{product.code || 'Sin codigo'}</div>
             </div>
             <div className="space-y-2 rounded-2xl border border-slate-200 p-4">
               <div className="flex items-center gap-2 text-slate-500">
@@ -116,13 +151,15 @@ export function ProductDetailScreen({ productId }: ProductDetailScreenProps) {
             <div className="space-y-2 rounded-2xl border border-slate-200 p-4">
               <div className="flex items-center gap-2 text-slate-500">
                 <CalendarDays className="h-4 w-4" />
-                Última actualización
+                Ultima actualizacion
               </div>
               <div className="font-medium text-slate-900">{formatDate(product.updatedAt)}</div>
             </div>
 
-            {updateMutation.isError ? (
-              <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700">{mapError(updateMutation.error)}</div>
+            {updateMutation.isError || archiveMutation.isError ? (
+              <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700">
+                {mapError(updateMutation.error ?? archiveMutation.error)}
+              </div>
             ) : null}
           </CardContent>
         </Card>

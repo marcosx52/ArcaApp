@@ -4,11 +4,12 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { Package2, PencilLine, PlusCircle, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { LoadingState } from '@/components/feedback/loading-state';
 import { StatusBadge } from '@/components/feedback/status-badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { getActiveCompanyId } from '@/lib/auth';
 import { mapError } from '@/lib/error-mapping';
 import { listProducts } from '../lib/products-api';
 import { formatProductPrice, productItemTypeLabel, productTaxTreatmentLabel } from '../lib/products';
@@ -25,20 +26,26 @@ function useDebouncedValue(value: string, delay = 300) {
 }
 
 export function ProductsScreen() {
+  const companyId = getActiveCompanyId();
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('all');
   const debouncedSearch = useDebouncedValue(search.trim());
 
   const productsQuery = useQuery({
-    queryKey: ['products', debouncedSearch, statusFilter],
+    queryKey: ['products', companyId ?? 'no-company', 'list', debouncedSearch, statusFilter],
     queryFn: () =>
       listProducts({
         q: debouncedSearch || undefined,
         isActive: statusFilter === 'all' ? undefined : statusFilter === 'active',
       }),
+    enabled: Boolean(companyId),
   });
 
   const products = productsQuery.data ?? [];
+
+  if (!companyId) {
+    return <LoadingState label="Preparando empresa activa..." />;
+  }
 
   return (
     <div className="space-y-6">
@@ -46,7 +53,7 @@ export function ProductsScreen() {
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="space-y-2">
             <CardTitle>Productos</CardTitle>
-            <CardDescription>Listado real conectado al backend para buscar, crear y editar productos.</CardDescription>
+            <CardDescription>Listado real conectado al backend para buscar, crear, editar y archivar productos.</CardDescription>
           </div>
           <Link
             href="/products/new"
@@ -75,7 +82,7 @@ export function ProductsScreen() {
             >
               <option value="all">Todos los estados</option>
               <option value="active">Activos</option>
-              <option value="inactive">Inactivos</option>
+              <option value="archived">Archivados</option>
             </select>
 
             <p className="text-sm text-slate-500">
@@ -101,8 +108,8 @@ export function ProductsScreen() {
 
           {!productsQuery.isLoading && !productsQuery.isError && products.length === 0 ? (
             <EmptyState
-              title="Todavía no hay productos"
-              description="Podés crear el primer producto para empezar a usar el catálogo sin mocks."
+              title="Todavia no hay productos"
+              description="Podes crear el primer producto o cambiar el filtro para revisar archivados."
               actionLabel="Crear producto"
               actionHref="/products/new"
             />
@@ -126,7 +133,7 @@ export function ProductsScreen() {
                     <tr key={product.id} className="align-top">
                       <td className="px-4 py-4">
                         <div className="font-medium text-slate-900">{product.name}</div>
-                        <div className="mt-1 text-xs text-slate-500">{product.code ? `Código ${product.code}` : 'Sin código'}</div>
+                        <div className="mt-1 text-xs text-slate-500">{product.code ? `Codigo ${product.code}` : 'Sin codigo'}</div>
                       </td>
                       <td className="px-4 py-4 text-slate-600">
                         <div>{productItemTypeLabel(product.itemType)}</div>
@@ -138,7 +145,7 @@ export function ProductsScreen() {
                       <td className="px-4 py-4 text-slate-600">{product.vatRate ? `${product.vatRate}%` : 'Sin IVA'}</td>
                       <td className="px-4 py-4">
                         <StatusBadge tone={product.isActive ? 'success' : 'danger'}>
-                          {product.isActive ? 'Activo' : 'Inactivo'}
+                          {product.isActive ? 'Activo' : 'Archivado'}
                         </StatusBadge>
                       </td>
                       <td className="px-4 py-4 text-right">
@@ -180,8 +187,8 @@ export function ProductsScreen() {
                 <Search className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm text-slate-500">Búsqueda y estado</p>
-                <p className="font-medium">Por nombre y filtro activo/inactivo</p>
+                <p className="text-sm text-slate-500">Busqueda y estado</p>
+                <p className="font-medium">Por nombre y filtro activo/archivado</p>
               </div>
             </div>
           </CardContent>
@@ -193,8 +200,8 @@ export function ProductsScreen() {
                 <PlusCircle className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm text-slate-500">Alta y edición</p>
-                <p className="font-medium">Flujo funcional end-to-end</p>
+                <p className="text-sm text-slate-500">Alta y edicion</p>
+                <p className="font-medium">Flujo funcional end-to-end con archivo</p>
               </div>
             </div>
           </CardContent>
