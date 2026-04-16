@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { InvoiceEventType, InvoiceStatus } from '@prisma/client';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import Decimal from 'decimal.js';
+import { InvoiceEventType, InvoiceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { InvoiceEventsService } from '../invoice-events/invoice-events.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
@@ -8,6 +9,12 @@ import { IssueInvoiceDto } from './dto/issue-invoice.dto';
 import { QueryInvoicesDto } from './dto/query-invoices.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { UpdateInvoiceItemDto } from './dto/update-invoice-item.dto';
+
+const MONEY_SCALE = 2;
+const QUANTITY_SCALE = 3;
+const RATE_SCALE = 2;
+const HUNDRED = new Decimal(100);
+const ZERO = new Decimal(0);
 
 @Injectable()
 export class InvoicesService {
@@ -84,15 +91,18 @@ export class InvoicesService {
     const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, companyId } });
     if (!invoice) throw new NotFoundException('Comprobante no encontrado');
 
-    const lineOrder = await this.prisma.invoiceItem.count({ where: { invoiceId } });
-
-    const quantity = Number(dto.quantity);
-    const unitPrice = Number(dto.unitPrice);
-    const discount = Number(dto.discountAmount || '0');
-    const subtotal = quantity * unitPrice - discount;
-    const vatRate = Number(dto.vatRate || '0');
-    const vatAmount = subtotal * (vatRate / 100);
-    const total = subtotal + vatAmount;
+    const lastItem = await this.prisma.invoiceItem.findFirst({
+      where: { invoiceId },
+      orderBy: { lineOrder: 'desc' },
+      select: { lineOrder: true },
+    });
+    const nextLineOrder = (lastItem?.lineOrder ?? 0) + 1;
+    const amounts = this.calculateItemAmounts({
+      quantity: dto.quantity,
+      unitPrice: dto.unitPrice,
+      discountAmount: dto.discountAmount,
+      vatRate: dto.vatRate,
+    });
 
     const item = await this.prisma.invoiceItem.create({
       data: {
@@ -100,14 +110,14 @@ export class InvoicesService {
         productId: dto.productId,
         itemCode: dto.itemCode,
         description: dto.description,
-        lineOrder: lineOrder + 1,
-        quantity: String(quantity),
-        unitPrice: String(unitPrice),
-        discountAmount: String(discount),
-        subtotalAmount: String(subtotal),
-        vatRate: String(vatRate),
-        vatAmount: String(vatAmount),
-        totalAmount: String(total),
+        lineOrder: nextLineOrder,
+        quantity: this.toPrismaDecimal(amounts.quantity, QUANTITY_SCALE),
+        unitPrice: this.toPrismaDecimal(amounts.unitPrice, MONEY_SCALE),
+        discountAmount: this.toPrismaDecimal(amounts.discountAmount, MONEY_SCALE),
+        subtotalAmount: this.toPrismaDecimal(amounts.subtotalAmount, MONEY_SCALE),
+        vatRate: this.toPrismaDecimal(amounts.vatRate, RATE_SCALE),
+        vatAmount: this.toPrismaDecimal(amounts.vatAmount, MONEY_SCALE),
+        totalAmount: this.toPrismaDecimal(amounts.totalAmount, MONEY_SCALE),
       },
     });
 
@@ -125,25 +135,24 @@ export class InvoicesService {
 
     if (!item) throw new NotFoundException('Ítem no encontrado');
 
-    const quantity = Number(dto.quantity ?? item.quantity.toString());
-    const unitPrice = Number(dto.unitPrice ?? item.unitPrice.toString());
-    const discount = Number(dto.discountAmount ?? item.discountAmount.toString());
-    const subtotal = quantity * unitPrice - discount;
-    const vatRate = Number(dto.vatRate ?? item.vatRate?.toString() ?? '0');
-    const vatAmount = subtotal * (vatRate / 100);
-    const total = subtotal + vatAmount;
+    const amounts = this.calculateItemAmounts({
+      quantity: dto.quantity ?? item.quantity,
+      unitPrice: dto.unitPrice ?? item.unitPrice,
+      discountAmount: dto.discountAmount ?? item.discountAmount,
+      vatRate: dto.vatRate ?? item.vatRate ?? ZERO,
+    });
 
     const updated = await this.prisma.invoiceItem.update({
       where: { id: itemId },
       data: {
         ...dto,
-        quantity: String(quantity),
-        unitPrice: String(unitPrice),
-        discountAmount: String(discount),
-        subtotalAmount: String(subtotal),
-        vatRate: String(vatRate),
-        vatAmount: String(vatAmount),
-        totalAmount: String(total),
+        quantity: this.toPrismaDecimal(amounts.quantity, QUANTITY_SCALE),
+        unitPrice: this.toPrismaDecimal(amounts.unitPrice, MONEY_SCALE),
+        discountAmount: this.toPrismaDecimal(amounts.discountAmount, MONEY_SCALE),
+        subtotalAmount: this.toPrismaDecimal(amounts.subtotalAmount, MONEY_SCALE),
+        vatRate: this.toPrismaDecimal(amounts.vatRate, RATE_SCALE),
+        vatAmount: this.toPrismaDecimal(amounts.vatAmount, MONEY_SCALE),
+        totalAmount: this.toPrismaDecimal(amounts.totalAmount, MONEY_SCALE),
       },
     });
 
@@ -225,19 +234,31 @@ export class InvoicesService {
   }
 
   async recalculateTotals(invoiceId: string) {
-    const items = await this.prisma.invoiceItem.findMany({ where: { invoiceId } });
+    const items = await this.prisma.invoiceItem.findMany({
+      where: { invoiceId },
+      select: {
+        subtotalAmount: true,
+        vatAmount: true,
+        totalAmount: true,
+      },
+    });
 
-    const subtotal = items.reduce((acc, item) => acc + Number(item.subtotalAmount), 0);
-    const tax = items.reduce((acc, item) => acc + Number(item.vatAmount), 0);
-    const total = items.reduce((acc, item) => acc + Number(item.totalAmount), 0);
+    const subtotal = items.reduce(
+      (acc, item) => acc.plus(this.parseDecimal(item.subtotalAmount, 'subtotalAmount')),
+      ZERO,
+    );
+    const tax = items.reduce((acc, item) => acc.plus(this.parseDecimal(item.vatAmount, 'vatAmount')), ZERO);
+    const total = items.reduce(
+      (acc, item) => acc.plus(this.parseDecimal(item.totalAmount, 'totalAmount')),
+      ZERO,
+    );
 
     return this.prisma.invoice.update({
       where: { id: invoiceId },
       data: {
-        subtotalAmount: String(subtotal),
-        taxAmount: String(tax),
-        totalAmount: String(total),
-        status: items.length ? 'READY' : 'DRAFT',
+        subtotalAmount: this.toPrismaDecimal(subtotal, MONEY_SCALE),
+        taxAmount: this.toPrismaDecimal(tax, MONEY_SCALE),
+        totalAmount: this.toPrismaDecimal(total, MONEY_SCALE),
       },
     });
   }
@@ -258,5 +279,55 @@ export class InvoicesService {
     });
 
     return draft;
+  }
+
+  private calculateItemAmounts(input: {
+    quantity: Prisma.Decimal | Decimal.Value;
+    unitPrice: Prisma.Decimal | Decimal.Value;
+    discountAmount?: Prisma.Decimal | Decimal.Value | null;
+    vatRate?: Prisma.Decimal | Decimal.Value | null;
+  }) {
+    const quantity = this.roundDecimal(this.parseDecimal(input.quantity, 'quantity'), QUANTITY_SCALE);
+    const unitPrice = this.roundDecimal(this.parseDecimal(input.unitPrice, 'unitPrice'), MONEY_SCALE);
+    const discountAmount = this.roundDecimal(
+      this.parseDecimal(input.discountAmount ?? ZERO, 'discountAmount'),
+      MONEY_SCALE,
+    );
+    const vatRate = this.roundDecimal(this.parseDecimal(input.vatRate ?? ZERO, 'vatRate'), RATE_SCALE);
+
+    const subtotalAmount = this.roundDecimal(quantity.times(unitPrice).minus(discountAmount), MONEY_SCALE);
+    const vatAmount = this.roundDecimal(subtotalAmount.times(vatRate).div(HUNDRED), MONEY_SCALE);
+    const totalAmount = this.roundDecimal(subtotalAmount.plus(vatAmount), MONEY_SCALE);
+
+    return {
+      quantity,
+      unitPrice,
+      discountAmount,
+      subtotalAmount,
+      vatRate,
+      vatAmount,
+      totalAmount,
+    };
+  }
+
+  private parseDecimal(value: Prisma.Decimal | Decimal.Value, fieldName: string) {
+    try {
+      if (value instanceof Decimal) {
+        return value;
+      }
+
+      return new Decimal(value.toString());
+    } catch {
+      throw new BadRequestException(`Decimal inválido en ${fieldName}`);
+    }
+  }
+
+  private roundDecimal(value: Decimal, scale: number) {
+    return value.toDecimalPlaces(scale, Decimal.ROUND_HALF_UP);
+  }
+
+  private toPrismaDecimal(value: Decimal, scale: number) {
+    const rounded = this.roundDecimal(value, scale);
+    return new Prisma.Decimal(rounded.toFixed(scale));
   }
 }
