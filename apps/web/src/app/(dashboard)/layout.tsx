@@ -1,5 +1,5 @@
-import { AppShell } from '@/components/layout/app-shell';
+import { DashboardGuard } from '@/components/layout/dashboard-guard';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  return <AppShell>{children}</AppShell>;
+  return <DashboardGuard>{children}</DashboardGuard>;
 }

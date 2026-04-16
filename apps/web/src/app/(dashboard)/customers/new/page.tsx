@@ -1,5 +1,5 @@
-import { CompanyScreen } from '@/features/company/components/company-screen';
+import { CustomerCreateScreen } from '@/features/customers/components/customer-create-screen';
 
 export default function NewCustomerPage() {
-  return <CompanyScreen />;
+  return <CustomerCreateScreen />;
 }

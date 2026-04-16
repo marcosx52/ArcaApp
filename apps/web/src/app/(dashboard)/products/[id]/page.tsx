@@ -1,5 +1,6 @@
-import { ProductsScreen } from '@/features/products/components/products-screen';
+import { ProductDetailScreen } from '@/features/products/components/product-detail-screen';
 
-export default function ProductDetailPage() {
-  return <ProductsScreen />;
+export default function ProductDetailPage({ params }: { params: { id: string } }) {
+  const { id } = params;
+  return <ProductDetailScreen productId={id} />;
 }

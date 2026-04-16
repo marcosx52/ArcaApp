@@ -1,7 +1,15 @@
 import clsx from 'clsx';
 
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={clsx('rounded-3xl border border-slate-200 bg-white shadow-sm', className)} {...props} />;
+  return (
+    <div
+      className={clsx(
+        'rounded-3xl border border-slate-200 bg-white/88 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/72',
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
@@ -13,7 +21,7 @@ export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHead
 }
 
 export function CardDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
-  return <p className={clsx('text-sm text-slate-500', className)} {...props} />;
+  return <p className={clsx('text-sm text-slate-500 dark:text-slate-400', className)} {...props} />;
 }
 
 export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {

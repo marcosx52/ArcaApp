@@ -1,5 +1,5 @@
-import { ProductsScreen } from '@/features/products/components/products-screen';
+import { ProductCreateScreen } from '@/features/products/components/product-create-screen';
 
 export default function NewProductPage() {
-  return <ProductsScreen />;
+  return <ProductCreateScreen />;
 }

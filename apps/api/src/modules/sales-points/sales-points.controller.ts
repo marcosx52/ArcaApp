@@ -25,17 +25,13 @@ export class SalesPointsController {
 
   @UseGuards(CompanyAccessGuard)
   @Patch('sales-points/:id')
-  update(
-    @CurrentCompany() _companyId: string,
-    @Param('id') id: string,
-    @Body() dto: UpdateSalesPointDto,
-  ) {
-    return this.service.update(id, dto);
+  update(@CurrentCompany() companyId: string, @Param('id') id: string, @Body() dto: UpdateSalesPointDto) {
+    return this.service.update(companyId, id, dto);
   }
 
   @UseGuards(CompanyAccessGuard)
   @Get('sales-points/:id')
-  findOne(@CurrentCompany() _companyId: string, @Param('id') id: string) {
-    return this.service.findOne(id);
+  findOne(@CurrentCompany() companyId: string, @Param('id') id: string) {
+    return this.service.findOne(companyId, id);
   }
 }
