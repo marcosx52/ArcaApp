@@ -137,7 +137,7 @@ export function TaxConfigEditor({ companyId, environment, config }: TaxConfigEdi
               {arcaEnvironmentLabels[environment]}
             </div>
             <CardTitle>{arcaEnvironmentLabels[environment]} config</CardTitle>
-            <CardDescription>Edicion funcional conectada a `PUT /companies/:companyId/tax-config`.</CardDescription>
+            <CardDescription>Edicion funcional conectada a `PUT /tax-config`.</CardDescription>
           </div>
           <StatusBadge tone={taxConfigStatusTone(currentStatus)}>{configStatusLabels[currentStatus]}</StatusBadge>
         </div>
@@ -239,4 +239,3 @@ export function TaxConfigEditor({ companyId, environment, config }: TaxConfigEdi
     </Card>
   );
 }
-

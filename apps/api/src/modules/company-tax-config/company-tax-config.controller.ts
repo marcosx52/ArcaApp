@@ -6,7 +6,7 @@ import { CompanyAccessGuard } from '../../common/guards/company-access.guard';
 import { CurrentCompany } from '../../common/decorators/current-company.decorator';
 
 @UseGuards(JwtAuthGuard, CompanyAccessGuard)
-@Controller('companies/:companyId/tax-config')
+@Controller('tax-config')
 export class CompanyTaxConfigController {
   constructor(private readonly service: CompanyTaxConfigService) {}
 
@@ -20,7 +20,7 @@ export class CompanyTaxConfigController {
     return this.service.upsert(companyId, dto);
   }
 
-  @Get('readiness-check')
+  @Get('readiness')
   readiness(@CurrentCompany() companyId: string) {
     return this.service.readiness(companyId);
   }

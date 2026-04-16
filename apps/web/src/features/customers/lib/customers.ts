@@ -37,7 +37,21 @@ export type CustomerRecord = {
   updatedAt: string;
 };
 
-export type CustomerCreateInput = Omit<CustomerFormValues, 'isActive'>;
+export type CustomerCreateInput = {
+  customerType: CustomerType;
+  legalName: string;
+  documentType: DocumentType;
+  documentNumber: string;
+  taxCondition: string;
+  email?: string;
+  phone?: string;
+  addressLine?: string;
+  city?: string;
+  province?: string;
+  notes?: string;
+  isFrequent: boolean;
+};
+
 export type CustomerUpdateInput = Partial<CustomerCreateInput> & {
   isActive?: boolean;
 };
@@ -97,13 +111,37 @@ export function toFormValues(customer: CustomerRecord): CustomerFormValues {
   };
 }
 
+function normalizeRequiredString(value: string) {
+  return value.trim();
+}
+
+function normalizeOptionalString(value: string) {
+  const normalizedValue = value.trim();
+  return normalizedValue ? normalizedValue : undefined;
+}
+
 export function toCreateInput(values: CustomerFormValues): CustomerCreateInput {
-  const { isActive, ...createInput } = values;
-  return createInput;
+  return {
+    customerType: values.customerType,
+    legalName: normalizeRequiredString(values.legalName),
+    documentType: values.documentType,
+    documentNumber: normalizeRequiredString(values.documentNumber),
+    taxCondition: normalizeRequiredString(values.taxCondition),
+    email: normalizeOptionalString(values.email),
+    phone: normalizeOptionalString(values.phone),
+    addressLine: normalizeOptionalString(values.addressLine),
+    city: normalizeOptionalString(values.city),
+    province: normalizeOptionalString(values.province),
+    notes: normalizeOptionalString(values.notes),
+    isFrequent: values.isFrequent,
+  };
 }
 
 export function toUpdateInput(values: CustomerFormValues): CustomerUpdateInput {
-  return values;
+  return {
+    ...toCreateInput(values),
+    isActive: values.isActive,
+  };
 }
 
 export function formatCustomerDocument(customer: Pick<CustomerRecord, 'documentType' | 'documentNumber'>) {

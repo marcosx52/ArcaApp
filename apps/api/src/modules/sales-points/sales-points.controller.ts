@@ -4,6 +4,7 @@ import { CreateSalesPointDto } from './dto/create-sales-point.dto';
 import { UpdateSalesPointDto } from './dto/update-sales-point.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CompanyAccessGuard } from '../../common/guards/company-access.guard';
+import { AllowCompanyRouteParam } from '../../common/decorators/allow-company-route-param.decorator';
 import { CurrentCompany } from '../../common/decorators/current-company.decorator';
 
 @UseGuards(JwtAuthGuard)
@@ -11,12 +12,14 @@ import { CurrentCompany } from '../../common/decorators/current-company.decorato
 export class SalesPointsController {
   constructor(private readonly service: SalesPointsService) {}
 
+  @AllowCompanyRouteParam()
   @UseGuards(CompanyAccessGuard)
   @Get('companies/:companyId/sales-points')
   list(@CurrentCompany() companyId: string) {
     return this.service.list(companyId);
   }
 
+  @AllowCompanyRouteParam()
   @UseGuards(CompanyAccessGuard)
   @Post('companies/:companyId/sales-points')
   create(@CurrentCompany() companyId: string, @Body() dto: CreateSalesPointDto) {

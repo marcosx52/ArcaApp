@@ -12,6 +12,8 @@ export class CustomersService {
     return this.prisma.customer.findMany({
       where: {
         companyId,
+        ...(typeof query.isActive === 'string' ? { isActive: query.isActive === 'true' } : {}),
+        ...(typeof query.isFrequent === 'string' ? { isFrequent: query.isFrequent === 'true' } : {}),
         ...(query.q
           ? {
               OR: [
@@ -21,7 +23,7 @@ export class CustomersService {
             }
           : {}),
       },
-      orderBy: { legalName: 'asc' },
+      orderBy: [{ isActive: 'desc' }, { legalName: 'asc' }],
     });
   }
 
