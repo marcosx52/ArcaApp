@@ -3,9 +3,12 @@
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, FileWarning, ReceiptText, ShieldCheck, Wallet } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { EmptyState } from '@/components/feedback/empty-state';
 import { LoadingState } from '@/components/feedback/loading-state';
 import { StatusBadge } from '@/components/feedback/status-badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { ACTIVE_COMPANY_CHANGE_EVENT, getActiveCompanyId } from '@/lib/auth';
 import { mapError } from '@/lib/error-mapping';
 import { getDashboardSummary } from '../lib/dashboard-api';
 
@@ -18,10 +21,33 @@ function formatCurrency(value: string) {
 }
 
 export function DashboardScreen() {
+  const [activeCompanyId, setActiveCompanyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveCompanyId(getActiveCompanyId());
+
+    function syncCompany() {
+      setActiveCompanyId(getActiveCompanyId());
+    }
+
+    window.addEventListener(ACTIVE_COMPANY_CHANGE_EVENT, syncCompany as EventListener);
+    window.addEventListener('storage', syncCompany);
+
+    return () => {
+      window.removeEventListener(ACTIVE_COMPANY_CHANGE_EVENT, syncCompany as EventListener);
+      window.removeEventListener('storage', syncCompany);
+    };
+  }, []);
+
   const summaryQuery = useQuery({
-    queryKey: ['dashboard', 'summary'],
+    queryKey: ['dashboard', activeCompanyId ?? 'no-company', 'summary'],
     queryFn: getDashboardSummary,
+    enabled: Boolean(activeCompanyId),
   });
+
+  if (!activeCompanyId) {
+    return <LoadingState label="Preparando empresa activa..." />;
+  }
 
   if (summaryQuery.isLoading) {
     return <LoadingState label="Cargando resumen operativo..." />;
@@ -32,6 +58,13 @@ export function DashboardScreen() {
       <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
         <p className="font-medium">No pudimos cargar el dashboard.</p>
         <p className="mt-1">{mapError(summaryQuery.error)}</p>
+        <button
+          className="mt-4 inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 dark:border-red-900 dark:bg-slate-950 dark:text-red-300"
+          onClick={() => summaryQuery.refetch()}
+          type="button"
+        >
+          Reintentar
+        </button>
       </div>
     );
   }
@@ -43,8 +76,8 @@ export function DashboardScreen() {
   }
 
   const cards = [
-    { title: 'Facturado', value: formatCurrency(summary.todayTotalAmount), icon: Wallet },
-    { title: 'Emitidos', value: String(summary.todayIssuedCount), icon: ReceiptText },
+    { title: 'Facturado hoy', value: formatCurrency(summary.todayTotalAmount), icon: Wallet },
+    { title: 'Emitidos hoy', value: String(summary.todayIssuedCount), icon: ReceiptText },
     { title: 'Borradores', value: String(summary.draftCount), icon: FileWarning },
     {
       title: 'Readiness',
@@ -64,6 +97,11 @@ export function DashboardScreen() {
       ? `Atencion: hay ${summary.failedCount} comprobante(s) con error para revisar.`
       : 'No se registran comprobantes fallidos en el resumen actual.',
   ];
+  const hasActivity =
+    summary.todayIssuedCount > 0 ||
+    Number(summary.todayTotalAmount) > 0 ||
+    summary.draftCount > 0 ||
+    summary.failedCount > 0;
 
   return (
     <div className="space-y-6">
@@ -88,6 +126,15 @@ export function DashboardScreen() {
           );
         })}
       </div>
+
+      {!hasActivity ? (
+        <EmptyState
+          title="Sin actividad para mostrar"
+          description="La empresa activa todavia no tiene emitidos de hoy, borradores o comprobantes fallidos."
+          actionLabel="Crear borrador"
+          actionHref="/invoices/new"
+        />
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
