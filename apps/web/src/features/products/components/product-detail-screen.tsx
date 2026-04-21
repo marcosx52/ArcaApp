@@ -25,6 +25,16 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function getArchiveErrorMessage(error: unknown) {
+  const message = mapError(error);
+
+  if (message === 'Request failed') {
+    return 'No pudimos archivar el producto. Intenta de nuevo.';
+  }
+
+  return `No pudimos archivar el producto. ${message}`;
+}
+
 export function ProductDetailScreen({ productId }: ProductDetailScreenProps) {
   const companyId = getActiveCompanyId();
   const queryClient = useQueryClient();
@@ -104,7 +114,7 @@ export function ProductDetailScreen({ productId }: ProductDetailScreenProps) {
         <ProductForm
           key={`${product.id}:${product.updatedAt}`}
           title={`Editar producto: ${product.name}`}
-          description="Cambios persistidos via PATCH /products/:id y archivado via DELETE /products/:id."
+          description="Edita los datos del producto. Si algo necesita correccion, lo marcamos en el mismo formulario."
           submitLabel="Guardar cambios"
           defaultValues={toProductFormValues(product)}
           showActiveField
@@ -156,9 +166,9 @@ export function ProductDetailScreen({ productId }: ProductDetailScreenProps) {
               <div className="font-medium text-slate-900">{formatDate(product.updatedAt)}</div>
             </div>
 
-            {updateMutation.isError || archiveMutation.isError ? (
+            {archiveMutation.isError ? (
               <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700">
-                {mapError(updateMutation.error ?? archiveMutation.error)}
+                {getArchiveErrorMessage(archiveMutation.error)}
               </div>
             ) : null}
           </CardContent>
