@@ -5,22 +5,32 @@ import { useRouter } from 'next/navigation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import { EmptyState } from '@/components/feedback/empty-state';
+import { LoadingState } from '@/components/feedback/loading-state';
+import { getActiveCompanyId } from '@/lib/auth';
 import { mapError } from '@/lib/error-mapping';
 import { createCustomer } from '../lib/customers-api';
-import { CustomerForm } from './customer-form';
 import { emptyCustomerFormValues, toCreateInput } from '../lib/customers';
+import { CustomerForm } from './customer-form';
 
 export function CustomerCreateScreen() {
+  const companyId = getActiveCompanyId();
   const router = useRouter();
   const queryClient = useQueryClient();
 
   const createMutation = useMutation({
     mutationFn: createCustomer,
     onSuccess: async (customer) => {
-      await queryClient.invalidateQueries({ queryKey: ['customers'] });
+      if (companyId) {
+        await queryClient.invalidateQueries({ queryKey: ['customers', companyId, 'list'] });
+      }
+
       router.push(`/customers/${customer.id}`);
     },
   });
+
+  if (!companyId) {
+    return <LoadingState label="Preparando empresa activa..." />;
+  }
 
   return (
     <div className="space-y-4">
@@ -35,10 +45,7 @@ export function CustomerCreateScreen() {
       </div>
 
       {createMutation.isError ? (
-        <EmptyState
-          title="No pudimos crear el cliente"
-          description={mapError(createMutation.error)}
-        />
+        <EmptyState title="No pudimos crear el cliente" description={mapError(createMutation.error)} />
       ) : null}
 
       <CustomerForm

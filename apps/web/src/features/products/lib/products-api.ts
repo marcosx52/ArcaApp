@@ -33,3 +33,7 @@ export function createProduct(payload: ProductCreateInput) {
 export function updateProduct(id: string, payload: ProductUpdateInput) {
   return apiClient.patch<ProductRecord>(`/products/${id}`, payload);
 }
+
+export function archiveProduct(id: string) {
+  return apiClient.delete<ProductRecord>(`/products/${id}`);
+}

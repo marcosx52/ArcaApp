@@ -1,16 +1,12 @@
 import { apiClient } from '@/lib/api-client';
 import type { TaxConfigReadinessPayload, TaxConfigRecord, TaxConfigUpsertInput } from './tax-config';
 
-function companyTaxConfigPath(companyId: string) {
-  return `/companies/${companyId}/tax-config`;
+function companyTaxConfigPath(_companyId: string) {
+  return '/tax-config';
 }
 
-function readinessPath(companyId: string) {
-  return `${companyTaxConfigPath(companyId)}/readiness`;
-}
-
-function legacyReadinessPath(companyId: string) {
-  return `${companyTaxConfigPath(companyId)}/readiness-check`;
+function readinessPath(_companyId: string) {
+  return '/tax-config/readiness';
 }
 
 type ReadinessEnvelope = {
@@ -34,12 +30,6 @@ export function upsertTaxConfig(companyId: string, payload: TaxConfigUpsertInput
 }
 
 export async function getTaxConfigReadiness(companyId: string) {
-  try {
-    const response = await apiClient.get<ReadinessEnvelope | TaxConfigReadinessPayload>(readinessPath(companyId));
-    return normalizeReadinessResponse(response);
-  } catch {
-    const fallback = await apiClient.get<ReadinessEnvelope | TaxConfigReadinessPayload>(legacyReadinessPath(companyId));
-    return normalizeReadinessResponse(fallback);
-  }
+  const response = await apiClient.get<ReadinessEnvelope | TaxConfigReadinessPayload>(readinessPath(companyId));
+  return normalizeReadinessResponse(response);
 }
-

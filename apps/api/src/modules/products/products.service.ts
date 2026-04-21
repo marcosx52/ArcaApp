@@ -12,10 +12,11 @@ export class ProductsService {
     return this.prisma.product.findMany({
       where: {
         companyId,
+        ...(typeof query.isActive === 'string' ? { isActive: query.isActive === 'true' } : {}),
         ...(query.itemType ? { itemType: query.itemType } : {}),
         ...(query.q ? { name: { contains: query.q, mode: 'insensitive' } } : {}),
       },
-      orderBy: { name: 'asc' },
+      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
     });
   }
 

@@ -4,11 +4,12 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { Building2, Mail, PencilLine, Phone, Search, UserPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { LoadingState } from '@/components/feedback/loading-state';
 import { StatusBadge } from '@/components/feedback/status-badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { getActiveCompanyId } from '@/lib/auth';
 import { mapError } from '@/lib/error-mapping';
 import { listCustomers } from '../lib/customers-api';
 import { customerTypeLabel, formatCustomerDocument } from '../lib/customers';
@@ -25,15 +26,26 @@ function useDebouncedValue(value: string, delay = 300) {
 }
 
 export function CustomersScreen() {
+  const companyId = getActiveCompanyId();
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('all');
   const debouncedSearch = useDebouncedValue(search.trim());
 
   const customersQuery = useQuery({
-    queryKey: ['customers', debouncedSearch],
-    queryFn: () => listCustomers(debouncedSearch ? { q: debouncedSearch } : undefined),
+    queryKey: ['customers', companyId ?? 'no-company', 'list', debouncedSearch, statusFilter],
+    queryFn: () =>
+      listCustomers({
+        q: debouncedSearch || undefined,
+        isActive: statusFilter === 'all' ? undefined : statusFilter === 'active',
+      }),
+    enabled: Boolean(companyId),
   });
 
   const customers = customersQuery.data ?? [];
+
+  if (!companyId) {
+    return <LoadingState label="Preparando empresa activa..." />;
+  }
 
   return (
     <div className="space-y-6">
@@ -41,7 +53,7 @@ export function CustomersScreen() {
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="space-y-2">
             <CardTitle>Clientes</CardTitle>
-            <CardDescription>Listado real conectado al backend para buscar, crear y editar clientes.</CardDescription>
+            <CardDescription>Listado real conectado al backend para buscar, crear, editar y archivar clientes.</CardDescription>
           </div>
           <Link
             href="/customers/new"
@@ -62,6 +74,17 @@ export function CustomersScreen() {
                 onChange={(event) => setSearch(event.target.value)}
               />
             </div>
+
+            <select
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+            >
+              <option value="all">Todos los estados</option>
+              <option value="active">Activos</option>
+              <option value="archived">Archivados</option>
+            </select>
+
             <p className="text-sm text-slate-500">
               {customersQuery.isFetching && !customersQuery.isLoading ? 'Actualizando...' : `${customers.length} resultado(s)`}
             </p>
@@ -85,8 +108,8 @@ export function CustomersScreen() {
 
           {!customersQuery.isLoading && !customersQuery.isError && customers.length === 0 ? (
             <EmptyState
-              title="Todavía no hay clientes"
-              description="Podés crear el primer cliente para empezar a facturar sin usar mocks."
+              title="Todavia no hay clientes"
+              description="Podes crear el primer cliente o cambiar el filtro para revisar archivados."
               actionLabel="Crear cliente"
               actionHref="/customers/new"
             />
@@ -99,7 +122,7 @@ export function CustomersScreen() {
                   <tr>
                     <th className="px-4 py-3 font-medium">Cliente</th>
                     <th className="px-4 py-3 font-medium">Documento</th>
-                    <th className="px-4 py-3 font-medium">Condición</th>
+                    <th className="px-4 py-3 font-medium">Condicion</th>
                     <th className="px-4 py-3 font-medium">Contacto</th>
                     <th className="px-4 py-3 font-medium">Estado</th>
                     <th className="px-4 py-3 font-medium" />
@@ -134,7 +157,7 @@ export function CustomersScreen() {
                       <td className="px-4 py-4">
                         <div className="flex flex-wrap gap-2">
                           <StatusBadge tone={customer.isActive ? 'success' : 'danger'}>
-                            {customer.isActive ? 'Activo' : 'Inactivo'}
+                            {customer.isActive ? 'Activo' : 'Archivado'}
                           </StatusBadge>
                           {customer.isFrequent ? <StatusBadge tone="warning">Frecuente</StatusBadge> : null}
                         </div>
@@ -178,8 +201,8 @@ export function CustomersScreen() {
                 <Search className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm text-slate-500">Búsqueda</p>
-                <p className="font-medium">Por nombre o documento</p>
+                <p className="text-sm text-slate-500">Busqueda y estado</p>
+                <p className="font-medium">Por nombre, documento y archivo</p>
               </div>
             </div>
           </CardContent>
@@ -191,7 +214,7 @@ export function CustomersScreen() {
                 <UserPlus className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm text-slate-500">Alta y edición</p>
+                <p className="text-sm text-slate-500">Alta, edicion y archivo</p>
                 <p className="font-medium">Flujo funcional end-to-end</p>
               </div>
             </div>

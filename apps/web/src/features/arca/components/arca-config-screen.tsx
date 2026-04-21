@@ -146,7 +146,7 @@ export function ArcaConfigScreen() {
         <Card className="border-slate-200 bg-white shadow-sm">
           <CardHeader>
             <CardTitle>Configuraciones cargadas</CardTitle>
-            <CardDescription>Lista real obtenida desde `GET /companies/:companyId/tax-config`.</CardDescription>
+            <CardDescription>Lista real obtenida desde `GET /tax-config`.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {configs.length > 0 ? (

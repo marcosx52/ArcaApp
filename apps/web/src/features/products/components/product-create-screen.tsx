@@ -4,23 +4,31 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
-import { EmptyState } from '@/components/feedback/empty-state';
-import { mapError } from '@/lib/error-mapping';
+import { LoadingState } from '@/components/feedback/loading-state';
+import { getActiveCompanyId } from '@/lib/auth';
 import { createProduct } from '../lib/products-api';
-import { ProductForm } from './product-form';
 import { emptyProductFormValues, toProductCreateInput } from '../lib/products';
+import { ProductForm } from './product-form';
 
 export function ProductCreateScreen() {
+  const companyId = getActiveCompanyId();
   const router = useRouter();
   const queryClient = useQueryClient();
 
   const createMutation = useMutation({
     mutationFn: createProduct,
     onSuccess: async (product) => {
-      await queryClient.invalidateQueries({ queryKey: ['products'] });
+      if (companyId) {
+        await queryClient.invalidateQueries({ queryKey: ['products', companyId, 'list'] });
+      }
+
       router.push(`/products/${product.id}`);
     },
   });
+
+  if (!companyId) {
+    return <LoadingState label="Preparando empresa activa..." />;
+  }
 
   return (
     <div className="space-y-4">
@@ -34,11 +42,9 @@ export function ProductCreateScreen() {
         </Link>
       </div>
 
-      {createMutation.isError ? <EmptyState title="No pudimos crear el producto" description={mapError(createMutation.error)} /> : null}
-
       <ProductForm
         title="Nuevo producto"
-        description="Alta funcional conectada al backend."
+        description="Completa los datos principales. Si falta algo obligatorio, lo vas a ver junto al campo."
         submitLabel="Crear producto"
         defaultValues={emptyProductFormValues}
         isSubmitting={createMutation.isPending}
