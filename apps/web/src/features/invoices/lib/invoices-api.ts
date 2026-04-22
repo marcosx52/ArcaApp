@@ -3,6 +3,7 @@ import type {
   CustomerOption,
   InvoiceCreateInput,
   InvoiceItemCreateInput,
+  InvoiceItemRecord,
   InvoiceItemUpdateInput,
   InvoiceIssueResult,
   InvoiceListFilters,
@@ -44,11 +45,11 @@ export function updateInvoice(id: string, payload: InvoiceUpdateInput) {
 }
 
 export function addInvoiceItem(invoiceId: string, payload: InvoiceItemCreateInput) {
-  return apiClient.post<InvoiceRecord>(`/invoices/${invoiceId}/items`, payload);
+  return apiClient.post<InvoiceItemRecord>(`/invoices/${invoiceId}/items`, payload);
 }
 
 export function updateInvoiceItem(itemId: string, payload: InvoiceItemUpdateInput) {
-  return apiClient.patch<InvoiceRecord>(`/invoices/items/${itemId}`, payload);
+  return apiClient.patch<InvoiceItemRecord>(`/invoices/items/${itemId}`, payload);
 }
 
 export function deleteInvoiceItem(itemId: string) {
@@ -78,6 +79,5 @@ export function listInvoiceSalesPoints(companyId: string) {
 }
 
 export function listInvoiceProducts() {
-  return apiClient.get<ProductOption[]>('/products');
+  return apiClient.get<ProductOption[]>('/products?isActive=true');
 }
-

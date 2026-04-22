@@ -112,6 +112,8 @@ export type InvoiceItemCreateInput = {
 };
 
 export type InvoiceItemUpdateInput = {
+  productId?: string | null;
+  itemCode?: string | null;
   description?: string;
   quantity?: string;
   unitPrice?: string;
@@ -320,4 +322,3 @@ export function fromDateInputValue(value: string) {
 export function getDefaultInvoiceDate() {
   return new Date().toISOString().slice(0, 10);
 }
-

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import type { FormEvent } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -25,14 +26,10 @@ import { mapError } from '@/lib/error-mapping';
 import {
   arcaStatusLabel,
   arcaStatusTone,
-  conceptTypeLabel,
-  formatDateOnly,
   formatDateTime,
   formatMoney,
   formatQuantity,
   invoiceEventLabel,
-  invoiceKindLabel,
-  invoiceLetterLabel,
   invoiceStatusLabel,
   invoiceStatusTone,
   toDateInputValue,
@@ -108,13 +105,40 @@ function itemStateFromItem(item: InvoiceItemRecord): ItemState {
   };
 }
 
+function parseFormNumber(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function validateItemState(state: ItemState) {
+  const description = state.description.trim();
+  const quantity = parseFormNumber(state.quantity);
+  const unitPrice = parseFormNumber(state.unitPrice);
+  const discountAmount = state.discountAmount.trim() ? parseFormNumber(state.discountAmount) : 0;
+  const vatRate = state.vatRate.trim() ? parseFormNumber(state.vatRate) : 0;
+
+  if (!description) return 'La descripcion del item es obligatoria.';
+  if (quantity == null || quantity <= 0) return 'La cantidad debe ser un numero mayor a cero.';
+  if (unitPrice == null || unitPrice < 0) return 'El precio unitario debe ser un numero valido.';
+  if (discountAmount == null || discountAmount < 0) return 'El descuento debe ser un numero valido.';
+  if (vatRate == null || vatRate < 0) return 'El IVA debe ser un numero valido.';
+  if (discountAmount > quantity * unitPrice) return 'El descuento no puede superar el subtotal del item.';
+
+  return '';
+}
+
 export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const activeCompanyId = getActiveCompanyId();
 
   const [headerState, setHeaderState] = useState<HeaderState>(headerStateFromInvoice());
   const [itemState, setItemState] = useState<ItemState>(itemStateFromProduct());
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [itemFormError, setItemFormError] = useState('');
   const [validation, setValidation] = useState<InvoiceValidation | null>(null);
   const [issueMessage, setIssueMessage] = useState('');
 
@@ -136,6 +160,15 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
   const items = [...(invoice?.items ?? [])].sort((a, b) => a.lineOrder - b.lineOrder);
   const events = [...(invoice?.events ?? [])].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
+  async function refreshInvoice() {
+    setValidation(null);
+    setIssueMessage('');
+    await Promise.all([
+      invoiceQuery.refetch(),
+      queryClient.invalidateQueries({ queryKey: ['invoices'] }),
+    ]);
+  }
+
   useEffect(() => {
     if (invoice) {
       setHeaderState(headerStateFromInvoice(invoice));
@@ -153,7 +186,7 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
         currencyRate: headerState.currencyRate || undefined,
         issueDate: headerState.issueDate ? new Date(`${headerState.issueDate}T00:00:00`).toISOString() : undefined,
       }),
-    onSuccess: () => invoiceQuery.refetch(),
+    onSuccess: refreshInvoice,
   });
 
   const addItem = useMutation({
@@ -168,31 +201,39 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
         vatRate: itemState.vatRate || undefined,
       }),
     onSuccess: async () => {
+      setItemFormError('');
       setEditingItemId(null);
       setItemState(itemStateFromProduct(productsQuery.data?.[0]));
-      await invoiceQuery.refetch();
+      await refreshInvoice();
     },
   });
 
   const editItem = useMutation({
     mutationFn: () =>
       updateInvoiceItem(editingItemId ?? '', {
+        productId: itemState.productId || null,
+        itemCode: itemState.itemCode.trim() || null,
         description: itemState.description.trim(),
         quantity: itemState.quantity,
         unitPrice: itemState.unitPrice,
-        discountAmount: itemState.discountAmount || undefined,
-        vatRate: itemState.vatRate || undefined,
+        discountAmount: itemState.discountAmount || '0',
+        vatRate: itemState.vatRate || '0',
       }),
     onSuccess: async () => {
+      setItemFormError('');
       setEditingItemId(null);
       setItemState(itemStateFromProduct(productsQuery.data?.[0]));
-      await invoiceQuery.refetch();
+      await refreshInvoice();
     },
   });
 
   const removeItem = useMutation({
     mutationFn: (itemId: string) => deleteInvoiceItem(itemId),
-    onSuccess: () => invoiceQuery.refetch(),
+    onSuccess: async (_result, itemId) => {
+      setItemFormError('');
+      if (editingItemId === itemId) resetItemForm();
+      await refreshInvoice();
+    },
   });
 
   const validate = useMutation({
@@ -217,13 +258,32 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
   }, [invoiceId]);
 
   function startEditing(item: InvoiceItemRecord) {
+    setItemFormError('');
     setEditingItemId(item.id);
     setItemState(itemStateFromItem(item));
   }
 
   function resetItemForm() {
+    setItemFormError('');
     setEditingItemId(null);
     setItemState(itemStateFromProduct(productsQuery.data?.[0]));
+  }
+
+  function handleItemSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const error = validateItemState(itemState);
+    if (error) {
+      setItemFormError(error);
+      return;
+    }
+
+    setItemFormError('');
+    if (editingItemId) {
+      editItem.mutate();
+    } else {
+      addItem.mutate();
+    }
   }
 
   if (invoiceQuery.isLoading) return <LoadingState label="Cargando comprobante..." />;
@@ -245,6 +305,7 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
 
   const customer = customersQuery.data?.find((current) => current.id === invoice.customerId) ?? invoice.customer ?? null;
   const salesPoint = salesPointsQuery.data?.find((current) => current.id === invoice.salesPointId) ?? null;
+  const itemMutationError = addItem.error ?? editItem.error ?? removeItem.error;
 
   return (
     <div className="space-y-6">
@@ -411,34 +472,32 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
           <CardDescription>Usa productos del catalogo o carga una linea manualmente.</CardDescription>
         </CardHeader>
         <CardContent>
-          {addItem.isError || editItem.isError || removeItem.isError ? (
+          {itemFormError || itemMutationError ? (
             <div className="mb-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-950/50 dark:bg-red-950/20">
               <p className="font-medium">No pudimos guardar los items.</p>
-              <p className="mt-1">{mapError(addItem.error ?? editItem.error ?? removeItem.error)}</p>
+              <p className="mt-1">{itemFormError || mapError(itemMutationError)}</p>
             </div>
           ) : null}
-          <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => {
-            event.preventDefault();
-            if (editingItemId) {
-              editItem.mutate();
-            } else {
-              addItem.mutate();
-            }
-          }}>
+          <form className="grid gap-4 md:grid-cols-2" onSubmit={handleItemSubmit}>
             <SelectField
               label="Producto"
               value={itemState.productId}
               onChange={(value) => {
                 const product = productsQuery.data?.find((current) => current.id === value) ?? null;
+                setItemFormError('');
+                if (!value) {
+                  setItemState((current) => ({ ...current, productId: '' }));
+                  return;
+                }
+
                 setItemState((current) => ({
-                  ...itemStateFromProduct(product),
                   productId: value,
-                  description: current.description || product?.name || '',
-                  itemCode: current.itemCode || product?.code || '',
+                  itemCode: product?.code ?? '',
+                  description: product?.name ?? current.description,
                   quantity: current.quantity || '1',
                   discountAmount: current.discountAmount || '0',
-                  vatRate: current.vatRate || (product?.vatRate != null ? String(product.vatRate) : ''),
-                  unitPrice: current.unitPrice || String(product?.referencePrice ?? '0'),
+                  vatRate: product?.vatRate != null ? String(product.vatRate) : current.vatRate,
+                  unitPrice: product?.referencePrice != null ? String(product.referencePrice) : current.unitPrice || '0',
                 }));
               }}
               disabled={!canEdit}

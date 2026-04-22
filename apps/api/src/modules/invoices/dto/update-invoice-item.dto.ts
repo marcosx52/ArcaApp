@@ -3,6 +3,14 @@ import { IsOptional, IsString } from 'class-validator';
 export class UpdateInvoiceItemDto {
   @IsOptional()
   @IsString()
+  productId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  itemCode?: string | null;
+
+  @IsOptional()
+  @IsString()
   description?: string;
 
   @IsOptional()
