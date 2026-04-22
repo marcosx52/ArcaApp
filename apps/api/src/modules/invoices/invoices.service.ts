@@ -247,10 +247,19 @@ export class InvoicesService {
       previousStatus: invoice.status,
       newStatus: nextStatus,
       message: validation.canIssue ? 'Validacion sin bloqueos.' : 'Validacion con bloqueos funcionales.',
+      payloadSnapshot: {
+        canIssue: validation.canIssue,
+        blockers: validation.blockers,
+        warnings: validation.warnings,
+        previousStatus: invoice.status,
+        status: nextStatus,
+      },
     });
 
     return {
       invoiceId: id,
+      previousStatus: invoice.status,
+      status: nextStatus,
       canIssue: validation.canIssue,
       blockers: validation.blockers,
       warnings: validation.warnings,

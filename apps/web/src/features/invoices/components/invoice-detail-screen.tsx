@@ -1,18 +1,25 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import {
+  AlertCircle,
+  AlertTriangle,
   ArrowLeft,
   BadgeCheck,
   CheckCircle2,
+  Clock3,
+  Info,
   Loader2,
   PencilLine,
   PlusCircle,
+  ReceiptText,
   Send,
+  ShieldCheck,
   Trash2,
   WandSparkles,
+  XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,9 +43,13 @@ import {
   invoiceStatusLabel,
   invoiceStatusTone,
   toDateInputValue,
+  type InvoiceEventRecord,
   type InvoiceItemRecord,
   type InvoiceRecord,
+  type InvoiceStatus,
   type InvoiceValidation,
+  type InvoiceValidationMessage,
+  type InvoiceValidationSnapshot,
   type ProductOption,
 } from '../lib/invoices';
 import {
@@ -108,8 +119,79 @@ function itemStateFromItem(item: InvoiceItemRecord): ItemState {
   };
 }
 
+const statusDetails: Record<InvoiceStatus, { title: string; description: string }> = {
+  DRAFT: {
+    title: 'Borrador editable',
+    description: 'Necesita una validacion funcional antes de quedar listo.',
+  },
+  READY: {
+    title: 'Listo para emitir',
+    description: 'La ultima validacion no encontro bloqueos.',
+  },
+  SENDING: {
+    title: 'Envio solicitado',
+    description: 'El flujo local ya salio del borrador.',
+  },
+  ISSUED: {
+    title: 'Emitido',
+    description: 'Comprobante cerrado para edicion operativa.',
+  },
+  FAILED: {
+    title: 'Con error',
+    description: 'Revisa el historial y los bloqueos antes de continuar.',
+  },
+  CANCELLED_LOGICALLY: {
+    title: 'Cancelado',
+    description: 'Comprobante cancelado logicamente.',
+  },
+};
+
+function getStatusDetail(status: InvoiceStatus) {
+  return statusDetails[status] ?? { title: invoiceStatusLabel(status), description: 'Estado del comprobante.' };
+}
+
+function validationIssueArea(code: string) {
+  switch (code) {
+    case 'missing_customer':
+      return 'Cabecera';
+    case 'missing_sales_point':
+      return 'Punto de venta';
+    case 'missing_items':
+      return 'Items';
+    case 'invoice_not_ready':
+    case 'invalid_status':
+      return 'Estado';
+    default:
+      return 'Validacion';
+  }
+}
+
+function normalizeValidationMessages(messages?: InvoiceValidationMessage[] | null) {
+  return Array.isArray(messages)
+    ? messages.filter((item) => item && typeof item.message === 'string')
+    : [];
+}
+
+function getEventValidationSnapshot(event?: InvoiceEventRecord | null): InvoiceValidationSnapshot | null {
+  const snapshot = event?.payloadSnapshot;
+  if (!snapshot || typeof snapshot.canIssue !== 'boolean') return null;
+
+  return {
+    canIssue: snapshot.canIssue,
+    blockers: normalizeValidationMessages(snapshot.blockers),
+    warnings: normalizeValidationMessages(snapshot.warnings),
+    previousStatus: snapshot.previousStatus ?? event?.previousStatus ?? null,
+    status: snapshot.status ?? event?.newStatus ?? null,
+  };
+}
+
+function eventHappenedAfter(event: InvoiceEventRecord, reference: InvoiceEventRecord) {
+  return new Date(event.createdAt).getTime() > new Date(reference.createdAt).getTime();
+}
+
 export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const activeCompanyId = getActiveCompanyId();
 
   const [headerState, setHeaderState] = useState<HeaderState>(headerStateFromInvoice());
@@ -135,6 +217,26 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
   const canEdit = invoice ? ['DRAFT', 'READY', 'FAILED'].includes(invoice.status) : false;
   const items = [...(invoice?.items ?? [])].sort((a, b) => a.lineOrder - b.lineOrder);
   const events = [...(invoice?.events ?? [])].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const latestValidationEvent =
+    events.find((event) => event.eventType === 'VALIDATION_PASSED' || event.eventType === 'VALIDATION_FAILED') ?? null;
+  const latestValidationIsStale =
+    !validation &&
+    Boolean(
+      latestValidationEvent &&
+        events.some((event) => event.eventType === 'DRAFT_UPDATED' && eventHappenedAfter(event, latestValidationEvent)),
+    );
+  const latestValidation: InvoiceValidationSnapshot | null = validation
+    ? {
+        canIssue: validation.canIssue,
+        blockers: validation.blockers,
+        warnings: validation.warnings,
+        previousStatus: validation.previousStatus ?? null,
+        status: validation.status ?? null,
+      }
+    : latestValidationIsStale
+      ? null
+      : getEventValidationSnapshot(latestValidationEvent);
+  const statusDetail = invoice ? getStatusDetail(invoice.status) : null;
 
   useEffect(() => {
     if (invoice) {
@@ -153,7 +255,12 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
         currencyRate: headerState.currencyRate || undefined,
         issueDate: headerState.issueDate ? new Date(`${headerState.issueDate}T00:00:00`).toISOString() : undefined,
       }),
-    onSuccess: () => invoiceQuery.refetch(),
+    onSuccess: async () => {
+      setValidation(null);
+      setIssueMessage('');
+      await invoiceQuery.refetch();
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    },
   });
 
   const addItem = useMutation({
@@ -170,7 +277,10 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
     onSuccess: async () => {
       setEditingItemId(null);
       setItemState(itemStateFromProduct(productsQuery.data?.[0]));
+      setValidation(null);
+      setIssueMessage('');
       await invoiceQuery.refetch();
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },
   });
 
@@ -186,20 +296,30 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
     onSuccess: async () => {
       setEditingItemId(null);
       setItemState(itemStateFromProduct(productsQuery.data?.[0]));
+      setValidation(null);
+      setIssueMessage('');
       await invoiceQuery.refetch();
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },
   });
 
   const removeItem = useMutation({
     mutationFn: (itemId: string) => deleteInvoiceItem(itemId),
-    onSuccess: () => invoiceQuery.refetch(),
+    onSuccess: async () => {
+      setValidation(null);
+      setIssueMessage('');
+      await invoiceQuery.refetch();
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    },
   });
 
   const validate = useMutation({
     mutationFn: () => validateInvoice(invoiceId),
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       setValidation(result);
       setIssueMessage('');
+      await invoiceQuery.refetch();
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },
   });
 
@@ -208,6 +328,7 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
     onSuccess: async (result) => {
       setIssueMessage(result.message);
       await invoiceQuery.refetch();
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },
   });
 
@@ -253,8 +374,6 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
           <ArrowLeft className="h-4 w-4" />
           Volver
         </Button>
-        <StatusBadge tone={invoiceStatusTone(invoice.status)}>{invoiceStatusLabel(invoice.status)}</StatusBadge>
-        <StatusBadge tone={arcaStatusTone(invoice.arcaStatus)}>{arcaStatusLabel(invoice.arcaStatus)}</StatusBadge>
       </div>
 
       <Card className="overflow-hidden">
@@ -270,15 +389,24 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
                 {salesPoint ? ` - PV ${salesPoint.posNumber}` : ''}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" type="button" onClick={() => validate.mutate()} disabled={validate.isPending}>
-                {validate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}
-                Validar
-              </Button>
-              <Button type="button" onClick={() => issue.mutate()} disabled={issue.isPending || !canEdit}>
-                {issue.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                Emitir
-              </Button>
+            <div className="flex flex-col items-start gap-3 md:items-end">
+              <div className="flex flex-wrap gap-2">
+                <StatusBadge tone={invoiceStatusTone(invoice.status)}>{invoiceStatusLabel(invoice.status)}</StatusBadge>
+                <StatusBadge tone={arcaStatusTone(invoice.arcaStatus)}>{arcaStatusLabel(invoice.arcaStatus)}</StatusBadge>
+              </div>
+              <p className="max-w-sm text-left text-sm text-slate-300 dark:text-slate-700 md:text-right">
+                {statusDetail?.title}. {statusDetail?.description}
+              </p>
+              <div className="flex flex-wrap justify-start gap-2 md:justify-end">
+                <Button variant="outline" type="button" onClick={() => validate.mutate()} disabled={validate.isPending} className="gap-2">
+                  {validate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}
+                  Validar
+                </Button>
+                <Button type="button" onClick={() => issue.mutate()} disabled={issue.isPending || !canEdit} className="gap-2">
+                  {issue.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  Emitir
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -290,17 +418,18 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
             <Stat title="Items" value={String(items.length)} />
           </div>
 
-          {validation ? (
-            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 text-sm dark:border-slate-800 dark:bg-slate-900/60">
-              <div className="flex items-center gap-2 font-medium">
-                <WandSparkles className="h-4 w-4" />
-                Validacion
-              </div>
-              <p className="mt-2">{validation.canIssue ? 'La invoice ya puede emitirse.' : 'Aun hay bloqueos para emitir.'}</p>
-              {validation.blockers.length > 0 ? <IssueList title="Bloqueos" items={validation.blockers.map((item) => item.message)} tone="red" /> : null}
-              {validation.warnings.length > 0 ? <IssueList title="Avisos" items={validation.warnings.map((item) => item.message)} tone="amber" /> : null}
-            </div>
-          ) : null}
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.85fr)]">
+            <StatusPanel invoice={invoice} latestValidationAt={latestValidationEvent?.createdAt} />
+            <ValidationPanel
+              validation={latestValidation}
+              lastValidatedAt={latestValidationEvent?.createdAt}
+              isPending={validate.isPending}
+              error={validate.error}
+              isStale={latestValidationIsStale}
+            />
+          </div>
+
+          <DetailGrid invoice={invoice} customerName={customer?.legalName} salesPointLabel={salesPoint ? `PV ${salesPoint.posNumber}${salesPoint.name ? ` - ${salesPoint.name}` : ''}` : null} />
 
           {issueMessage ? (
             <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-700 dark:border-emerald-950/50 dark:bg-emerald-950/20 dark:text-emerald-200">
@@ -387,18 +516,7 @@ export function InvoiceDetailScreen({ invoiceId }: { invoiceId: string }) {
               <EmptyState title="Sin eventos todavia" description="Cuando validemos o emitamos, el historial empezara a completarse." />
             ) : (
               events.map((event) => (
-                <div key={event.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-900/60">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="font-medium">{invoiceEventLabel(event.eventType)}</p>
-                      <p className="mt-1 text-xs uppercase tracking-wide text-slate-500">{formatDateTime(event.createdAt)}</p>
-                    </div>
-                    <StatusBadge tone={invoiceStatusTone((event.newStatus ?? event.previousStatus ?? invoice.status) as any)}>
-                      {invoiceStatusLabel((event.newStatus ?? event.previousStatus ?? invoice.status) as any)}
-                    </StatusBadge>
-                  </div>
-                  {event.message ? <p className="mt-3 text-slate-600 dark:text-slate-300">{event.message}</p> : null}
-                </div>
+                <HistoryEventCard key={event.id} event={event} fallbackStatus={invoice.status} />
               ))
             )}
           </CardContent>
@@ -530,14 +648,233 @@ function Stat({ title, value }: { title: string; value: string }) {
   );
 }
 
-function IssueList({ title, items, tone }: { title: string; items: string[]; tone: 'red' | 'amber' }) {
+function StatusPanel({ invoice, latestValidationAt }: { invoice: InvoiceRecord; latestValidationAt?: string }) {
+  const detail = getStatusDetail(invoice.status);
+
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 text-sm dark:border-slate-800 dark:bg-slate-900/60">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="rounded-2xl bg-white p-2 text-slate-700 shadow-sm dark:bg-slate-950 dark:text-slate-200">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-wide text-slate-500">Estado actual</p>
+            <p className="mt-1 text-lg font-semibold text-slate-950 dark:text-slate-50">{detail.title}</p>
+          </div>
+        </div>
+        <StatusBadge tone={invoiceStatusTone(invoice.status)}>{invoiceStatusLabel(invoice.status)}</StatusBadge>
+      </div>
+      <p className="mt-4 text-slate-600 dark:text-slate-300">{detail.description}</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/60">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Estado ARCA</p>
+          <div className="mt-2">
+            <StatusBadge tone={arcaStatusTone(invoice.arcaStatus)}>{arcaStatusLabel(invoice.arcaStatus)}</StatusBadge>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/60">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Ultima validacion</p>
+          <p className="mt-2 font-medium text-slate-900 dark:text-slate-50">
+            {latestValidationAt ? formatDateTime(latestValidationAt) : 'Sin registro'}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailGrid({
+  invoice,
+  customerName,
+  salesPointLabel,
+}: {
+  invoice: InvoiceRecord;
+  customerName?: string | null;
+  salesPointLabel?: string | null;
+}) {
+  const rows = [
+    { label: 'Cliente', value: customerName ?? 'Sin cliente' },
+    { label: 'Punto de venta', value: salesPointLabel ?? 'Sin definir' },
+    { label: 'Tipo', value: `${invoiceKindLabel(invoice.invoiceKind)} ${invoiceLetterLabel(invoice.invoiceLetter)}` },
+    { label: 'Concepto', value: conceptTypeLabel(invoice.conceptType) },
+    { label: 'Fecha', value: formatDateOnly(invoice.issueDate ?? invoice.createdAt) },
+    { label: 'Moneda', value: `${invoice.currencyCode ?? 'PES'} / ${invoice.currencyRate ?? '1'}` },
+  ];
+
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 text-sm dark:border-slate-800 dark:bg-slate-950/60">
+      <div className="mb-4 flex items-center gap-2 font-medium">
+        <ReceiptText className="h-4 w-4" />
+        Lectura del comprobante
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        {rows.map((row) => (
+          <div key={row.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/60">
+            <p className="text-xs uppercase tracking-wide text-slate-500">{row.label}</p>
+            <p className="mt-1 font-medium text-slate-950 dark:text-slate-50">{row.value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ValidationPanel({
+  validation,
+  lastValidatedAt,
+  isPending,
+  error,
+  isStale,
+}: {
+  validation: InvoiceValidationSnapshot | null;
+  lastValidatedAt?: string;
+  isPending: boolean;
+  error?: unknown;
+  isStale?: boolean;
+}) {
+  const blockers = normalizeValidationMessages(validation?.blockers);
+  const warnings = normalizeValidationMessages(validation?.warnings);
+
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 text-sm dark:border-slate-800 dark:bg-slate-900/60">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="rounded-2xl bg-white p-2 text-slate-700 shadow-sm dark:bg-slate-950 dark:text-slate-200">
+            {isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <WandSparkles className="h-5 w-5" />}
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-wide text-slate-500">Validacion previa</p>
+            <p className="mt-1 text-lg font-semibold text-slate-950 dark:text-slate-50">
+              {isPending
+                ? 'Validando'
+                : validation
+                  ? validation.canIssue
+                    ? 'Sin bloqueos'
+                    : 'Con bloqueos'
+                  : isStale
+                    ? 'Desactualizada'
+                  : 'Sin resultado'}
+            </p>
+          </div>
+        </div>
+        {validation ? (
+          <StatusBadge tone={validation.canIssue ? 'success' : 'danger'}>{validation.canIssue ? 'Aprobada' : 'Bloqueada'}</StatusBadge>
+        ) : null}
+      </div>
+
+      {lastValidatedAt ? (
+        <p className="mt-3 text-xs uppercase tracking-wide text-slate-500">Ultima ejecucion: {formatDateTime(lastValidatedAt)}</p>
+      ) : null}
+
+      {error ? (
+        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-red-700 dark:border-red-950/50 dark:bg-red-950/20 dark:text-red-300">
+          <div className="flex items-center gap-2 font-medium">
+            <AlertCircle className="h-4 w-4" />
+            No pudimos ejecutar validate().
+          </div>
+          <p className="mt-1">{mapError(error)}</p>
+        </div>
+      ) : null}
+
+      {!validation && !isPending && !error ? (
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3 text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300">
+          <div className="flex items-center gap-2 font-medium text-slate-800 dark:text-slate-100">
+            <Info className="h-4 w-4" />
+            {isStale ? 'La validacion previa quedo desactualizada por cambios posteriores.' : 'Todavia no hay snapshot de validacion.'}
+          </div>
+        </div>
+      ) : null}
+
+      {validation && blockers.length === 0 && warnings.length === 0 ? (
+        <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-emerald-700 dark:border-emerald-950/50 dark:bg-emerald-950/20 dark:text-emerald-300">
+          <div className="flex items-center gap-2 font-medium">
+            <CheckCircle2 className="h-4 w-4" />
+            No hay blockers ni warnings activos.
+          </div>
+        </div>
+      ) : null}
+
+      {blockers.length > 0 ? <IssueList title="Blockers" items={blockers} tone="red" /> : null}
+      {warnings.length > 0 ? <IssueList title="Warnings" items={warnings} tone="amber" /> : null}
+    </div>
+  );
+}
+
+function HistoryEventCard({ event, fallbackStatus }: { event: InvoiceEventRecord; fallbackStatus: InvoiceStatus }) {
+  const status = event.newStatus ?? event.previousStatus ?? fallbackStatus;
+  const validationSnapshot = getEventValidationSnapshot(event);
+  const blockers = normalizeValidationMessages(validationSnapshot?.blockers);
+  const warnings = normalizeValidationMessages(validationSnapshot?.warnings);
+
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-900/60">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="font-medium">{invoiceEventLabel(event.eventType)}</p>
+          <p className="mt-1 flex items-center gap-1 text-xs uppercase tracking-wide text-slate-500">
+            <Clock3 className="h-3.5 w-3.5" />
+            {formatDateTime(event.createdAt)}
+          </p>
+        </div>
+        <StatusBadge tone={invoiceStatusTone(status)}>{invoiceStatusLabel(status)}</StatusBadge>
+      </div>
+      {event.previousStatus && event.newStatus && event.previousStatus !== event.newStatus ? (
+        <p className="mt-3 text-xs uppercase tracking-wide text-slate-500">
+          {invoiceStatusLabel(event.previousStatus)} -&gt; {invoiceStatusLabel(event.newStatus)}
+        </p>
+      ) : null}
+      {event.message ? <p className="mt-3 text-slate-600 dark:text-slate-300">{event.message}</p> : null}
+      {validationSnapshot ? (
+        <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge tone={validationSnapshot.canIssue ? 'success' : 'danger'}>
+              {validationSnapshot.canIssue ? 'Validacion aprobada' : 'Validacion bloqueada'}
+            </StatusBadge>
+            {warnings.length > 0 ? <StatusBadge tone="warning">{warnings.length} warning(s)</StatusBadge> : null}
+          </div>
+          {blockers.length > 0 ? <IssueList title="Blockers" items={blockers} tone="red" compact /> : null}
+          {warnings.length > 0 ? <IssueList title="Warnings" items={warnings} tone="amber" compact /> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function IssueList({
+  title,
+  items,
+  tone,
+  compact = false,
+}: {
+  title: string;
+  items: InvoiceValidationMessage[];
+  tone: 'red' | 'amber';
+  compact?: boolean;
+}) {
+  const Icon = tone === 'red' ? XCircle : AlertTriangle;
   const textClass = tone === 'red' ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300';
+  const itemClass =
+    tone === 'red'
+      ? 'border-red-200 bg-red-50 dark:border-red-950/50 dark:bg-red-950/20'
+      : 'border-amber-200 bg-amber-50 dark:border-amber-950/50 dark:bg-amber-950/20';
+
   return (
     <div className={`mt-3 ${textClass}`}>
       <p className="font-medium">{title}</p>
-      <ul className="mt-2 space-y-1">
+      <ul className={compact ? 'mt-2 space-y-2' : 'mt-3 space-y-2'}>
         {items.map((item) => (
-          <li key={item}>- {item}</li>
+          <li key={`${item.code}-${item.message}`} className={`rounded-2xl border p-3 ${itemClass}`}>
+            <div className="flex gap-2">
+              <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <span className="inline-flex rounded-full bg-white/70 px-2 py-0.5 text-xs font-medium dark:bg-slate-950/50">
+                  {validationIssueArea(item.code)}
+                </span>
+                <p className="mt-1">{item.message}</p>
+              </div>
+            </div>
+          </li>
         ))}
       </ul>
     </div>

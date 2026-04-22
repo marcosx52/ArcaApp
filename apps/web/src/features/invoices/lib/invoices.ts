@@ -29,12 +29,26 @@ export type InvoiceItemRecord = {
   updatedAt?: string;
 };
 
+export type InvoiceValidationMessage = {
+  code: string;
+  message: string;
+};
+
+export type InvoiceValidationSnapshot = {
+  canIssue: boolean;
+  blockers: InvoiceValidationMessage[];
+  warnings: InvoiceValidationMessage[];
+  previousStatus?: InvoiceStatus | null;
+  status?: InvoiceStatus | null;
+};
+
 export type InvoiceEventRecord = {
   id: string;
   eventType: string;
   previousStatus?: InvoiceStatus | null;
   newStatus?: InvoiceStatus | null;
   message?: string | null;
+  payloadSnapshot?: InvoiceValidationSnapshot | null;
   createdAt: string;
 };
 
@@ -121,9 +135,11 @@ export type InvoiceItemUpdateInput = {
 
 export type InvoiceValidation = {
   invoiceId: string;
+  previousStatus?: InvoiceStatus | null;
+  status?: InvoiceStatus | null;
   canIssue: boolean;
-  blockers: Array<{ code: string; message: string }>;
-  warnings: Array<{ code: string; message: string }>;
+  blockers: InvoiceValidationMessage[];
+  warnings: InvoiceValidationMessage[];
 };
 
 export type InvoiceIssueResult = {
