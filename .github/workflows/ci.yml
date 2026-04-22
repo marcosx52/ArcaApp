@@ -1,4 +1,4 @@
-name: CI
+name: CI + E2E
 
 on:
   pull_request:
@@ -7,11 +7,39 @@ on:
       - main
       - develop
       - dev
+      - feature/**
 
 jobs:
-  validate:
-    name: Validate / Build
+  validate-and-e2e:
+    name: Build + Smoke + E2E
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: facturacion_arca
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d facturacion_arca"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/facturacion_arca?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/facturacion_arca?schema=public
+      PORT: 3001
+      JWT_SECRET: dev-secret
+      STORAGE_DRIVER: local
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:3001/api/v1
+      CORS_ORIGIN: http://127.0.0.1:3000
+      CI: true
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
 
     steps:
       - name: Checkout
@@ -29,7 +57,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Check forbidden tracked secrets
         run: |
@@ -40,17 +68,61 @@ jobs:
             exit 1
           fi
 
+      - name: Prisma generate
+        run: pnpm db:generate
+
       - name: Prisma validate
         working-directory: apps/api
-        env:
-          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/facturacion_arca?schema=public"
-          DIRECT_URL: "postgresql://postgres:postgres@localhost:5432/facturacion_arca?schema=public"
         run: pnpm prisma validate
 
+      - name: Push schema to CI database
+        run: pnpm ci:db:push
+
+      - name: Seed CI database
+        run: pnpm db:seed
+
       - name: Build API
-        run: pnpm --filter api build
+        run: pnpm ci:api
 
       - name: Build Web
-        env:
-          NEXT_PUBLIC_API_URL: "http://localhost:3001/api/v1"
-        run: pnpm --filter web build
+        run: pnpm ci:web
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Start API
+        run: |
+          pnpm ci:start:api > api.log 2>&1 &
+          echo $! > api.pid
+
+      - name: Start Web
+        run: |
+          pnpm ci:start:web > web.log 2>&1 &
+          echo $! > web.pid
+
+      - name: Wait for API
+        run: node scripts/ci/wait-for-url.mjs http://127.0.0.1:3001/api/v1/health 90
+
+      - name: Wait for Web
+        run: node scripts/ci/wait-for-url.mjs http://127.0.0.1:3000/login 120
+
+      - name: Run Playwright tests
+        run: pnpm test:e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+
+      - name: Upload server logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-logs
+          path: |
+            api.log
+            web.log
