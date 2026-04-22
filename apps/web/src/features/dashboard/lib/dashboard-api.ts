@@ -1,5 +1,12 @@
 import { apiClient } from '@/lib/api-client';
 
+export type DashboardOnboardingStatus =
+  | 'DRAFT'
+  | 'PENDING_TAX_SETUP'
+  | 'READY_FOR_HOMOLOGATION'
+  | 'READY_FOR_PRODUCTION'
+  | 'SUSPENDED';
+
 export type DashboardSummaryResponse = {
   success: boolean;
   data: {
@@ -8,7 +15,7 @@ export type DashboardSummaryResponse = {
     draftCount: number;
     failedCount: number;
     readiness: {
-      onboardingStatus: string;
+      onboardingStatus: DashboardOnboardingStatus;
       isReadyForHomologation: boolean;
       isReadyForProduction: boolean;
     };
