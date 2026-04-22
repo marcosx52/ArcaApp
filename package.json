@@ -9,6 +9,15 @@
     "db:generate": "pnpm --filter api prisma generate",
     "db:migrate": "pnpm --filter api prisma migrate dev",
     "db:seed": "pnpm --filter api prisma db seed",
-    "db:studio": "pnpm --filter api prisma studio"
+    "db:studio": "pnpm --filter api prisma studio",
+    "ci:db:push": "pnpm --filter api prisma db push --skip-generate",
+    "ci:api": "pnpm --filter api build",
+    "ci:web": "pnpm --filter web build",
+    "ci:start:api": "pnpm --filter api start",
+    "ci:start:web": "pnpm --filter web start",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.53.0"
   }
 }
