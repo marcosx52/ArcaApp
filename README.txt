@@ -1,17 +1,11 @@
-PAQUETE A - AUTOMATIZACIÓN GITHUB
+PAQUETE C - Automatización de pruebas y delivery semi-automático
 
-Archivos incluidos:
+Incluye:
 - .github/workflows/ci.yml
-- .github/workflows/codeql.yml
-- .github/pull_request_template.md
-- .gitignore
-- docs/automation/GITHUB_SETUP.md
-- docs/automation/BRANCH_STRATEGY.md
-
-Cómo aplicar:
-1. Copiar/reemplazar archivos en la raíz del repo
-2. Commit + push al repositorio GitHub
-3. En GitHub, habilitar branch protection en main
-4. Revisar que aparezcan los workflows en Actions
-
-Este paquete no agrega tests aún; cuando armemos tests reales sumamos el job.
+- playwright.config.ts
+- tests/e2e/*
+- scripts/ci/wait-for-url.mjs
+- AGENTS.md
+- docs/automation/PACKAGE_C_SETUP.md
+- docs/automation/AUTO_MERGE_NOTES.md
+- package.json (actualizado con Playwright y scripts de CI)

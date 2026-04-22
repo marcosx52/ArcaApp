@@ -15,6 +15,7 @@ import { InvoiceRelationsModule } from './modules/invoice-relations/invoice-rela
 import { DocumentsModule } from './modules/documents/documents.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ReadinessModule } from './modules/readiness/readiness.module';
+import { ArcaModule } from './integrations/arca/arca.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { CompanyAccessGuard } from './common/guards/company-access.guard';
 
@@ -36,6 +37,7 @@ import { CompanyAccessGuard } from './common/guards/company-access.guard';
     DocumentsModule,
     DashboardModule,
     ReadinessModule,
+    ArcaModule,
   ],
   providers: [JwtAuthGuard, CompanyAccessGuard],
 })
