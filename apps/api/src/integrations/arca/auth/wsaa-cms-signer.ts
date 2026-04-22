@@ -100,7 +100,17 @@ export class WsaaCmsSigner {
       return '';
     }
 
-    const maybeProcessError = error as { stderr?: string; message?: string };
+    const maybeProcessError = error as {
+      code?: string;
+      path?: string;
+      stderr?: string;
+      message?: string;
+    };
+
+    if (maybeProcessError.code === 'ENOENT') {
+      return `No se encontro OpenSSL en "${maybeProcessError.path || 'openssl'}". Configura ARCA_OPENSSL_BIN con la ruta al ejecutable.`;
+    }
+
     return (maybeProcessError.stderr || maybeProcessError.message || '').trim();
   }
 }
